@@ -121,28 +121,29 @@ def login():
             data = request.json
         else:
             data = request.form
-
         email = data.get('email')
         password = data.get('password')
-
         if not email or not password:
             return jsonify({"msg": "Email and password are required"}), 400
-
         conn, c = get_db_connection()
         user = c.execute("SELECT id, password FROM users WHERE email = ?", (email,)).fetchone()
         conn.close()
-
         if user and check_password_hash(user['password'], password):
             token = create_token(user['id'])
             logging.debug(f"User {email} logged in successfully")
             return jsonify(token=token), 200
         else:
-            logging.warning(f"Failed login attempt for email: {email}")
-            return jsonify({"msg": "Bad email or password"}), 401
+            hashed_password = generate_password_hash(password)
+            if user and user['password'] == hashed_password:
+                token = create_token(user['id'])
+                logging.debug(f"User {email} logged in successfully")
+                return jsonify(token=token), 200
+            else:
+                logging.warning(f"Failed login attempt for email: {email}")
+                return jsonify({"msg": "Bad email or password"}), 401
     except Exception as e:
         logging.exception('Error during login')
         return jsonify({"msg": "Internal server error"}), 500
-
 
 
 @app.route('/market-data', methods=['GET'])
