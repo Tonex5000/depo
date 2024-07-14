@@ -9,6 +9,7 @@ from flask_cors import CORS
 from database import setup_database
 import os
 import time
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -80,33 +81,29 @@ def index():
 def register():
     try:
         if request.content_type == 'application/json':
-            # Handle JSON data
             data = request.json
-            email = data['email']
-            password = data['password']
-            username = data.get('username')
-            phone_number = data.get('phone_number')
         else:
-            # Handle form data
             data = request.form
-            email = data['email']
-            password = data['password']
-            username = data.get('username')
-            phone_number = data.get('phone_number')
+
+        email = data.get('email')
+        password = data.get('password')
+        username = data.get('username')
+        phone_number = data.get('phone_number')
 
         if not email or not password:
             return jsonify({"msg": "Email and password are required"}), 400
 
+        hashed_password = generate_password_hash(password)
+
         conn, c = get_db_connection()
 
-        # Check if the email already exists
         user = c.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
         if user:
             return jsonify({"msg": "Email already registered"}), 400
 
         c.execute(
             "INSERT INTO users (email, password, username, phone_number, paper_balance) VALUES (?, ?, ?, ?, ?)", 
-            (email, password, username, phone_number, 0)
+            (email, hashed_password, username, phone_number, 0)
         )
         conn.commit()
         conn.close()
@@ -117,31 +114,25 @@ def register():
         logging.exception('Error during registration')
         return str(e), 500
 
-
 @app.route('/login', methods=['POST'])
 def login():
     try:
         if request.content_type == 'application/json':
-            # Handle JSON data
             data = request.json
-            email = data.get('email')
-            password = data.get('password')
         else:
-            # Handle form data
-            email = request.form.get('email')
-            password = request.form.get('password')
+            data = request.form
+
+        email = data.get('email')
+        password = data.get('password')
 
         if not email or not password:
             return jsonify({"msg": "Email and password are required"}), 400
 
         conn, c = get_db_connection()
-        user = c.execute(
-            "SELECT id FROM users WHERE email = ? AND password = ?", 
-            (email, password)
-        ).fetchone()
+        user = c.execute("SELECT id, password FROM users WHERE email = ?", (email,)).fetchone()
         conn.close()
-        
-        if user:
+
+        if user and check_password_hash(user['password'], password):
             token = create_token(user['id'])
             logging.debug(f"User {email} logged in successfully")
             return jsonify(token=token), 200
