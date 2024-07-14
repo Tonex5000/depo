@@ -8,6 +8,7 @@ import requests
 from flask_cors import CORS
 from database import setup_database
 import os
+import time
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -147,7 +148,7 @@ def login():
         if user:
             token = create_token(user['id'])
             logging.debug(f"User {email} logged in successfully")
-            return jsonify(token=token, email=email), 200
+            return jsonify(token=token), 200
         else:
             logging.warning(f"Failed login attempt for email: {email}")
             return jsonify({"msg": "Bad email or password"}), 401
@@ -227,24 +228,6 @@ def deposit(user_id):
         return str(e), 500
 
 
-import requests
-
-response = requests.get('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd')
-response_data = response.json()
-print(response_data)
-
-
-from flask import Flask, request, jsonify
-import requests
-import logging
-import time
-
-app = Flask(__name__)
-
-def get_db_connection():
-    # Dummy function, replace with actual database connection logic
-    pass
-
 @app.route('/spot-grid', methods=['POST'])
 @token_required
 def spot_grid(user_id):
@@ -264,6 +247,7 @@ def spot_grid(user_id):
         grid_intervals = data['grid_intervals']
         investment_amount = data['investment_amount']
         wallet_address = data['wallet_address']
+        paper_balance_usd = data.get('balance')
 
         trading_strategy = "Spot Grid"
         roi = data.get('roi', 0)
@@ -274,14 +258,16 @@ def spot_grid(user_id):
 
         conn, c = get_db_connection()
 
-        paper_balance_usd = get_paper_balance_usd(c, wallet_address)
+        """ paper_balance_usd = get_paper_balance_usd(c, wallet_address) """
         if paper_balance_usd < investment_amount:
             app.logger.debug(f'Insufficient funds: paper_balance_usd={paper_balance_usd}, investment_amount={investment_amount}')
             return jsonify({"error": "Insufficient funds"}), 400
 
         # Deduct investment_amount from paper_balance
-        c.execute("UPDATE users SET paper_balance = paper_balance - ? WHERE id = ?", (investment_amount, user_id))
-        conn.commit()
+        """ c.execute("UPDATE users SET paper_balance = paper_balance - ? WHERE id = ?", (investment_amount, user_id))
+        conn.commit() """
+
+        paper_balance_usd = paper_balance_usd - investment_amount
 
         # Fetch the appropriate conversion rate for the selected trading pair
         symbol_map = {
