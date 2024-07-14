@@ -75,10 +75,6 @@ def token_required(f):
 def index():
     return render_template('index.html')
 
-@app.route('/login-page', methods=['GET'])
-def login_page():
-    return render_template('login.html')
-
 
 @app.route('/register', methods=['POST'])
 def register():
