@@ -1,23 +1,23 @@
-import sqlite3
+import psycopg2
 
 def setup_database():
-    conn = sqlite3.connect('trading_bot.db', check_same_thread=False)
+    conn = psycopg2.connect(host="dpg-cqagoarv2p9s73d13og0-a", dbname="trading_db_key1", user="trading_db_key1_user", password="wEHeCbekgEA29Q0RNJVKA8jz38kO9AKZ", port=5432)
     c = conn.cursor()
 
     # Create users table
     c.execute('''CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY,
-        email TEXT UNIQUE,
-        password TEXT,
-        username TEXT,
-        phone_number TEXT,
+        id SERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        username TEXT NOT NULL,
+        phone_number TEXT NOT NULL,
         paper_balance REAL DEFAULT 0
     )''')
 
     # Create deposits table
     c.execute('''CREATE TABLE IF NOT EXISTS deposits (
-        id INTEGER PRIMARY KEY,
-        user_id INTEGER,
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
         timestamp REAL,
         amount REAL,
         balance_usd REAL,
@@ -26,6 +26,21 @@ def setup_database():
         transaction_hash TEXT,
         contract_address TEXT,
         transaction_fee REAL,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )''')
+
+        # Create spot_grids table
+    c.execute('''CREATE TABLE IF NOT EXISTS spot_grids (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        trading_pair TEXT,
+        trading_strategy TEXT,
+        roi REAL,
+        pnl REAL,
+        runtime TEXT,
+        min_investment REAL,
+        status TEXT,
+        user_count INTEGER,
         FOREIGN KEY(user_id) REFERENCES users(id)
     )''')
 
@@ -40,32 +55,8 @@ def setup_database():
         price REAL,
         timestamp INTEGER,
         spot_grid_id INTEGER,
-        FOREIGN KEY(user_id) REFERENCES users(id),
-        FOREIGN KEY(spot_grid_id) REFERENCES spot_grids(id)
-    )''')
-
-    # Create spot_grids table
-    c.execute('''CREATE TABLE IF NOT EXISTS spot_grids (
-        id INTEGER PRIMARY KEY,
-        user_id INTEGER,
-        trading_pair TEXT,
-        trading_strategy TEXT,
-        roi REAL,
-        pnl REAL,
-        runtime TEXT,
-        min_investment REAL,
-        status TEXT,
-        user_count INTEGER,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    )''')
-
-    # Create tokens table
-    c.execute('''CREATE TABLE IF NOT EXISTS tokens (
-        id INTEGER PRIMARY KEY,
-        user_id INTEGER,
-        token TEXT NOT NULL,
-        expires_at DATETIME NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES users(id)
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(spot_grid_id) REFERENCES spot_grids(id) ON DELETE CASCADE
     )''')
 
     conn.commit()

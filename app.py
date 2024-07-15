@@ -1,4 +1,4 @@
-import sqlite3
+import psycopg2
 from flask import Flask, jsonify, request, render_template, send_from_directory, current_app
 import logging
 import jwt
@@ -25,9 +25,25 @@ logging.basicConfig(level=logging.DEBUG)
 
 # Helper function to get database connection
 def get_db_connection():
-    conn = sqlite3.connect('trading_bot.db', timeout=30, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(host="localhost", dbname="postgres", user="postgres", password="password", port=5432)
     return conn, conn.cursor()
+
+
+def get_db_connection():
+    try:
+        conn = psycopg2.connect(host="dpg-cqagoarv2p9s73d13og0-a", dbname="trading_db_key1", user="trading_db_key1_user", password="wEHeCbekgEA29Q0RNJVKA8jz38kO9AKZ", port=5432)
+        cursor = conn.cursor()
+        return conn, cursor
+
+    except psycopg2.Error as e:
+        print(f"Error connecting to PostgresSQL: {e}")
+        return None, None
+
+def close_db_connection(conn, cursor):
+    if cursor:
+        cursor.close()
+    if conn:
+        conn.close()
 
 # Helper function to create a new JWT token
 def create_token(user_id):
@@ -90,26 +106,38 @@ def register():
         username = data.get('username')
         phone_number = data.get('phone_number')
 
-        if not email or not password:
-            return jsonify({"msg": "Email and password are required"}), 400
-
-        hashed_password = generate_password_hash(password)
-
+        if not email or not password or not username or not phone_number:
+            return jsonify({"msg": "Fill in your complete details"}), 400
         conn, c = get_db_connection()
+        
 
-        user = c.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
-        if user:
-            return jsonify({"msg": "Email already registered"}), 400
+        if conn and c:
+            #check email existant
+            c.execute("SELECT id FROM users WHERE email = %s", (email,))
+            user = c.fetchone()
 
-        c.execute(
-            "INSERT INTO users (email, password, username, phone_number, paper_balance) VALUES (?, ?, ?, ?, ?)", 
-            (email, hashed_password, username, phone_number, 0)
-        )
-        conn.commit()
-        conn.close()
+            if user:
+              close_db_connection(conn, c)  
+              return jsonify({"msg": "Email already registered"}), 400
+            
+            
+            hashed_password = generate_password_hash(password)
 
-        logging.debug(f"User {email} registered successfully")
-        return jsonify({"msg": "User created successfully"}), 201
+            
+            #insert new user
+            c.execute(
+                "INSERT INTO users (email, password, username, phone_number, paper_balance) VALUES (%s, %s, %s, %s, %s)",
+                (email, hashed_password, username, phone_number, 0)
+            )
+            conn.commit()
+            close_db_connection(conn, c)
+
+
+            logging.debug(f"User {email} registered successfully")
+            return jsonify({"msg": "User created successfully"}), 201
+        else:
+            return jsonify({msg: "Failed to connect to database"}), 500
+   
     except Exception as e:
         logging.exception('Error during registration')
         return str(e), 500
@@ -121,26 +149,38 @@ def login():
             data = request.json
         else:
             data = request.form
+
         email = data.get('email')
         password = data.get('password')
+
         if not email or not password:
             return jsonify({"msg": "Email and password are required"}), 400
+
         conn, c = get_db_connection()
-        user = c.execute("SELECT id, password FROM users WHERE email = ?", (email,)).fetchone()
-        conn.close()
-        if user and check_password_hash(user['password'], password):
-            token = create_token(user['id'])
-            logging.debug(f"User {email} logged in successfully")
-            return jsonify(token=token), 200
-        else:
-            hashed_password = generate_password_hash(password)
-            if user and user['password'] == hashed_password:
-                token = create_token(user['id'])
-                logging.debug(f"User {email} logged in successfully")
-                return jsonify(token=token), 200
+        
+        if conn and c:
+            c.execute("SELECT id, password FROM users WHERE email = %s", (email,))
+            user = c.fetchone()
+
+        
+            if user:
+                user_id = user[0]
+                stored_password = user[1]
+                
+                if check_password_hash(stored_password, password):
+                    token = create_token(user_id)
+                    close_db_connection(conn, c)
+                    logging.debug(f"User {email} logged in successfully")
+                    return jsonify(token=token), 200
+                else:
+                     logging.warning(f"Failed login attempt for email: {email}")
+                     return jsonify({"msg": "Password mismatch"}), 401
+     
             else:
-                logging.warning(f"Failed login attempt for email: {email}")
+                logging.warning(f"User with email {email} not found")
                 return jsonify({"msg": "Bad email or password"}), 401
+        else:
+            return jsonify({"msg": "Failed to connect to database"}), 500
     except Exception as e:
         logging.exception('Error during login')
         return jsonify({"msg": "Internal server error"}), 500
@@ -185,7 +225,7 @@ def deposit(user_id):
 
             # Convert BNB to USD
             try:
-                response = requests.get('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd')
+                response = requests.get('https://api.coingecko.com/api/v3/simple/price%sids=binancecoin&vs_currencies=usd')
                 response_data = response.json()
                 rate = float(response_data['binancecoin']['usd'])
             except KeyError:
@@ -200,12 +240,12 @@ def deposit(user_id):
             logging.debug(f'Deposit request: user_id={user_id}, amount_bnb={deposited_amount_bnb}, balance_usd={balance_usd}, status={status}, transaction_hash={transaction_hash}, contract_address={contract_address}, transaction_fee={transaction_fee}')
 
             conn, c = get_db_connection()
-            c.execute("INSERT INTO deposits (user_id, amount, balance_usd, status, timestamp, transaction_hash, contract_address, transaction_fee, wallet_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            c.execute("INSERT INTO deposits (user_id, amount, balance_usd, status, timestamp, transaction_hash, contract_address, transaction_fee, wallet_address) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                       (user_id, deposited_amount_bnb, balance_usd, status, datetime.strptime(deposit_date, '%Y-%m-%dT%H:%M:%S.%fZ').timestamp(), transaction_hash, contract_address, transaction_fee, wallet_address))
             if status == 'Successful':
-                c.execute("UPDATE users SET paper_balance = paper_balance + ? WHERE id = ?", (balance_usd, user_id))
+                c.execute("UPDATE users SET paper_balance = paper_balance + %s WHERE id = %s", (balance_usd, user_id))
             conn.commit()
-            conn.close()
+            close_db_connection(conn, c)
 
             logging.debug(f'Deposit successful for user_id={user_id}, amount_usd={balance_usd}')
             return jsonify({'deposited_amount_bnb': deposited_amount_bnb, 'balance_usd': balance_usd, 'status': status, 'transaction_hash': transaction_hash, 'contract_address': contract_address, 'transaction_fee': transaction_fee, 'wallet_address': wallet_address})
@@ -252,7 +292,7 @@ def spot_grid(user_id):
             return jsonify({"error": "Insufficient funds"}), 400
 
         # Deduct investment_amount from paper_balance
-        """ c.execute("UPDATE users SET paper_balance = paper_balance - ? WHERE id = ?", (investment_amount, user_id))
+        """ c.execute("UPDATE users SET paper_balance = paper_balance - %s WHERE id = %s", (investment_amount, user_id))
         conn.commit() """
 
         paper_balance_usd = paper_balance_usd - investment_amount
@@ -311,19 +351,19 @@ def spot_grid(user_id):
             trades.append(sell_trade)
 
         c.execute(
-            "INSERT INTO spot_grids (user_id, trading_pair, trading_strategy, roi, pnl, runtime, min_investment, status, user_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO spot_grids (user_id, trading_pair, trading_strategy, roi, pnl, runtime, min_investment, status, user_count) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (user_id, symbol, trading_strategy, roi, pnl, runtime, investment_amount, "Active", 1)
         )
         spot_grid_id = c.lastrowid
 
         for trade in trades:
             c.execute(
-                "INSERT INTO trades (user_id, symbol, type, side, amount, price, timestamp, spot_grid_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO trades (user_id, symbol, type, side, amount, price, timestamp, spot_grid_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                 (trade['user_id'], trade['symbol'], trade['type'], trade['side'], trade['amount'], trade['price'], trade['timestamp'], spot_grid_id)
             )
 
         conn.commit()
-        conn.close()
+        close_db_connection(conn, c)
 
         logging.debug(f'Spot grid trading started successfully for user_id={user_id}, trades={trades}')
         return jsonify({"msg": "Grid trading started successfully", "trades": trades}), 200
@@ -332,7 +372,7 @@ def spot_grid(user_id):
         return jsonify({"error": str(e)}), 500
 
 def get_paper_balance_usd(cursor, wallet_address):
-    paper_balance_bnb = cursor.execute("SELECT SUM(amount) FROM deposits WHERE wallet_address = ?", (wallet_address,)).fetchone()[0]
+    paper_balance_bnb = cursor.execute("SELECT SUM(amount) FROM deposits WHERE wallet_address = %s", (wallet_address,))[0]
     
     if paper_balance_bnb is None:
         return 0
@@ -365,12 +405,12 @@ def get_marketplace(user_id):
         elif (sort_by == 'copied'):
             c.execute("SELECT id, trading_pair, roi, pnl, runtime, min_investment, user_count FROM spot_grids WHERE status = 'Active' ORDER BY user_count DESC")
         else:
-            conn.close()
+            close_db_connection(conn, c)
             logging.error(f"Invalid sorting parameter: {sort_by}")
             return jsonify({"error": "Invalid sorting parameter"}), 400
 
         spot_grids = c.fetchall()
-        conn.close()
+        close_db_connection(conn, c)
 
         bot_list = []
         for grid in spot_grids:
@@ -395,8 +435,8 @@ def get_marketplace(user_id):
 def get_paper_trades(user_id):
     try:
         conn, c = get_db_connection()
-        trades = c.execute("SELECT * FROM trades WHERE user_id = ?", (user_id,)).fetchall()
-        conn.close()
+        trades = c.execute("SELECT * FROM trades WHERE user_id = %s", (user_id,)).fetchall()
+        close_db_connection(conn, c)
 
         trade_list = []
         for trade in trades:
@@ -423,8 +463,8 @@ def get_paper_trades(user_id):
 def get_spot_grids(user_id):
     try:
         conn, c = get_db_connection()
-        spot_grids = c.execute("SELECT * FROM spot_grids WHERE user_id = ?", (user_id,)).fetchall()
-        conn.close()
+        spot_grids = c.execute("SELECT * FROM spot_grids WHERE user_id = %s", (user_id,)).fetchall()
+        close_db_connection(conn, c)
 
         grid_list = []
         for grid in spot_grids:
@@ -451,8 +491,8 @@ def get_spot_grids(user_id):
 @token_required
 def trade_history(user_id):
     conn, c = get_db_connection()
-    trades = c.execute("SELECT timestamp, symbol, type, side, amount, price FROM trades WHERE user_id = ?", (user_id,)).fetchall()
-    conn.close()
+    trades = c.execute("SELECT timestamp, symbol, type, side, amount, price FROM trades WHERE user_id = %s", (user_id,)).fetchall()
+    close_db_connection(conn, c)
 
     trade_history = []
     for trade in trades:
@@ -478,9 +518,9 @@ def get_deposit_history(user_id):
         logging.debug(f'Fetching deposit history for wallet_address: {wallet_address}')
 
         conn, c = get_db_connection()
-        c.execute("SELECT amount, status, timestamp, transaction_hash, contract_address FROM deposits WHERE user_id = ? AND wallet_address = ?", (user_id, wallet_address))
+        c.execute("SELECT amount, status, timestamp, transaction_hash, contract_address FROM deposits WHERE user_id = %s AND wallet_address = %s", (user_id, wallet_address))
         deposits = c.fetchall()
-        conn.close()
+        close_db_connection(conn, c)
 
         deposit_history = []
         for deposit in deposits:
