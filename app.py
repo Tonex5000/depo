@@ -599,12 +599,13 @@ def trade_history(user_id):
     return jsonify(trade_history)
 
 
-@app.route('/deposit_history', methods=['GET'])
+@app.route('/deposit_history', methods=['POST'])
 @token_required
 def get_deposit_history(user_id):
-    conn, cursor = None, None  # Initialize conn and cursor to None
+    conn, cursor = None, None
     try:
-        wallet_address = request.args.get('wallet_address')
+        data = request.get_json()
+        wallet_address = data.get('wallet_address')
         if not wallet_address:
             return jsonify({'error': 'Wallet address is required'}), 400
 
@@ -620,11 +621,11 @@ def get_deposit_history(user_id):
         deposit_history = []
         for deposit in deposits:
             deposit_history.append({
-                'amount': deposit['amount'],
-                'status': deposit['status'],
-                'timestamp': deposit['timestamp'],
-                'transaction_hash': deposit['transaction_hash'],
-                'contract_address': deposit['contract_address']
+                'amount': deposit[0],
+                'status': deposit[1],
+                'timestamp': deposit[2],
+                'transaction_hash': deposit[3],
+                'contract_address': deposit[4]
             })
 
         return jsonify(deposit_history)
