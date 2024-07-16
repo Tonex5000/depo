@@ -3,7 +3,7 @@ from psycopg2 import connect, sql
 from flask import Flask, jsonify, request, render_template, send_from_directory, current_app
 import logging
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 import requests
 from flask_cors import CORS
@@ -278,14 +278,6 @@ def deposit(user_id):
         return str(e), 500
 
 
-def generate_user_id():
-      letters = string.ascii_letters
-      return
-      ''.join(random.choice(letters)
-      for _ in range(3))
-
-# Path: your_flask_app.py
-
 @app.route('/spot-grid', methods=['POST'])
 @token_required
 def spot_grid(user_id):
@@ -310,11 +302,18 @@ def spot_grid(user_id):
         runtime = data['runtime']
 
         try:
-            duration = isodate.parse_duration(runtime)
-            runtime_seconds = int(duration.total_seconds())
+            if runtime.endswith('Z'):
+                runtime_datetime = datetime.fromisoformat(runtime[:-1]).replace(tzinfo=timezone.utc)
+            else:
+                runtime_datetime = datetime.fromisoformat(runtime)
+
+            current_time = datetime.utcnow().replace(tzinfo=timezone.utc)
+            if runtime_datetime <= current_time:
+                raise ValueError("Runtime must be a future date and time")
+            runtime_seconds = int((runtime_datetime - current_time).total_seconds())
         except (ValueError, TypeError) as e:
             app.logger.error(f"Invalid runtime format: {runtime}")
-            return jsonify({"error": "Invalid runtime format. Use ISO 8601 duration format."}), 400
+            return jsonify({"error": "Invalid runtime format. Use ISO 8601 date and time format."}), 400
 
         trading_strategy = "Spot Grid"
         roi = data.get('roi', 0)
@@ -418,6 +417,7 @@ def spot_grid(user_id):
     except Exception as e:
         app.logger.error(f"Error during spot grid: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 
 
