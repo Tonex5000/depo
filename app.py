@@ -447,7 +447,7 @@ def get_paper_balance(user_id):
 
         if not wallet_address:
             app.logger.error('Missing required parameter: wallet_address')
-            return jsonify({"error": "Missing required parameter: wallet_address"}), 400
+            return jsonify({"msg": "0"}), 400
 
         conn, cursor = get_db_connection()
         cursor.execute("SELECT paper_balance FROM deposits WHERE wallet_address = %s", (wallet_address,))
@@ -459,7 +459,7 @@ def get_paper_balance(user_id):
             return jsonify({"wallet_address": wallet_address, "paper_balance": paper_balance}), 200
         else:
             app.logger.error(f'Wallet address not found: {wallet_address}')
-            return jsonify({"error": "Wallet address not found"}), 404
+            return jsonify({"msg": "0"}), 404
 
     except Exception as e:
         app.logger.error(f"Error fetching paper balance: {e}")
