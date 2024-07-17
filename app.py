@@ -28,15 +28,16 @@ DATABASE_PATH = os.path.join(os.getcwd(), 'trading_bot.db')
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
-
 def get_db_connection():
     try:
         conn = psycopg2.connect(
-        host="dpg-cqb9bpij1k6c73aof69g-a.oregon-postgres.render.com",
-        dbname="bot_db_u735",
-        user="bot_db_u735_user",
-        password="gPCwV9bQP0r8AB3IuJcKf0rFmGjxoRmP",
-        port=5432)
+            host="dpg-cqbqdhiju9rs7396af9g-a.oregon-postgres.render.com",
+            dbname="trade_bot",
+            user="trade_bot_user",
+            password="3v5PGtbbBh8WJFa9DQnSTbo86gLWQZq1",
+            port=5432,
+            
+        )
         c = conn.cursor()
 
         cursor = conn.cursor()
@@ -256,10 +257,21 @@ def deposit(user_id):
 
                 if status == 'Successful':
                     cursor.execute(sql.SQL("""
-                        UPDATE deposits SET paper_balance = paper_balance + %s WHERE wallet_address = %s
+                         UPDATE deposits SET paper_balance = paper_balance + %s WHERE wallet_address = %s
                     """), (balance_usd, wallet_address))
-                
-                conn.commit()
+    
+                     # Fetch the updated paper_balance
+                    cursor.execute(sql.SQL("""
+                         SELECT paper_balance FROM deposits WHERE wallet_address = %s
+                    """), (wallet_address,))
+    
+                    paper_balance = cursor.fetchone()
+                    conn.commit()
+
+                    if paper_balance:
+                        paper_balance = paper_balance[0]
+                    else:
+                        paper_balance = 0
 
             except Exception as e:
                 conn.rollback()
@@ -269,7 +281,7 @@ def deposit(user_id):
                 close_db_connection(conn, cursor)
 
             logging.debug(f'Deposit successful for user_id={user_id}, amount_usd={balance_usd}')
-            return jsonify({'deposited_amount_bnb': deposited_amount_bnb, 'balance_usd': balance_usd, 'status': status, 'transaction_hash': transaction_hash, 'contract_address': contract_address, 'wallet_address': wallet_address, 'paper_balance': balance_usd if status == 'Successful' else 0})
+            return jsonify({'deposited_amount_bnb': deposited_amount_bnb, 'balance_usd': balance_usd, 'status': status, 'transaction_hash': transaction_hash, 'contract_address': contract_address, 'wallet_address': wallet_address , 'paper_balance': paper_balance})
         else:
             return jsonify({'message': 'Content-Type must be application/json'}), 400
 
@@ -402,8 +414,8 @@ def spot_grid(user_id):
 
         for trade in trades:
             cursor.execute(
-                "INSERT INTO trades (user_id, symbol, type, side, amount, price, timestamp, spot_grid_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                (trade['user_id'], trade['symbol'], trade['type'], trade['side'], trade['amount'], trade['price'], trade['timestamp'], spot_grid_id)
+                "INSERT INTO trades (user_id, symbol, type, side, amount, price, timestamp, spot_grid_id, wallet_address) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (trade['user_id'], trade['symbol'], trade['type'], trade['side'], trade['amount'], trade['price'], trade['timestamp'], spot_grid_id, wallet_address)
             )
 
         # Start a new thread to update the user's paper balance after the runtime duration
@@ -417,10 +429,6 @@ def spot_grid(user_id):
     except Exception as e:
         app.logger.error(f"Error during spot grid: {e}")
         return jsonify({"error": str(e)}), 500
-
-
-
-
 
 
 def update_balance_after_delay(user_id, wallet_address, total_sell_value, delay):
@@ -569,34 +577,49 @@ def get_spot_grids(user_id):
         logging.exception('Error fetching spot grids')
         return str(e), 500
 
-@app.route('/trade_history', methods=['GET'])
+@app.route('/trade_history', methods=['POST'])
 @token_required
 def trade_history(user_id):
-    conn, cursor = get_db_connection()
-    if not conn or not cursor:
-        return jsonify({"error": "Database connection failed"}), 500
-
+    conn, cursor = None, None
     try:
-        cursor.execute("SELECT timestamp, symbol, type, side, amount, price FROM trades WHERE user_id = %s", (user_id,))
+        data = request.json
+        app.logger.debug(f"Received request data: {data}")
+
+        if 'wallet_address' not in data:
+            app.logger.error('Missing required parameter: wallet_address')
+            return jsonify({"error": "Missing required parameter: wallet_address"}), 400
+
+        wallet_address = data['wallet_address']
+
+        conn, cursor = get_db_connection()
+        if not conn or not cursor:
+            return jsonify({"error": "Database connection failed"}), 500
+
+        cursor.execute(
+            "SELECT timestamp, symbol, type, side, amount, price FROM trades WHERE user_id = %s AND wallet_address = %s",
+            (user_id, wallet_address)
+        )
         trades = cursor.fetchall()
+
+        trade_history = []
+        for trade in trades:
+            trade_history.append({
+                "timestamp": trade[0],
+                "symbol": trade[1],
+                "type": trade[2],
+                "side": trade[3],
+                "amount": trade[4],
+                "price": trade[5]
+            })
+
+        return jsonify(trade_history)
     except Exception as e:
-        app.logger.error(f"Error executing query: {e}")
-        return jsonify({"error": "Failed to fetch trade history"}), 500
+        app.logger.error(f"Error fetching trade history: {e}")
+        return jsonify({"error": str(e)}), 500
     finally:
-        close_db_connection(conn, cursor)
+        if conn and cursor:
+            close_db_connection(conn, cursor)
 
-    trade_history = []
-    for trade in trades:
-        trade_history.append({
-            "timestamp": trade[0],
-            "symbol": trade[1],
-            "type": trade[2],
-            "side": trade[3],
-            "amount": trade[4],
-            "price": trade[5]
-        })
-
-    return jsonify(trade_history)
 
 
 @app.route('/deposit_history', methods=['POST'])

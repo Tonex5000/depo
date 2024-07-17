@@ -3,14 +3,15 @@ import psycopg2
 def setup_database():
     try:
         conn = psycopg2.connect(
-            host="dpg-cqb9bpij1k6c73aof69g-a.oregon-postgres.render.com",
-            dbname="bot_db_u735",
-            user="bot_db_u735_user",
-            password="gPCwV9bQP0r8AB3IuJcKf0rFmGjxoRmP",
+            host="dpg-cqbqdhiju9rs7396af9g-a.oregon-postgres.render.com",
+            dbname="trade_bot",
+            user="trade_bot_user",
+            password="3v5PGtbbBh8WJFa9DQnSTbo86gLWQZq1",
             port=5432,
             
         )
         c = conn.cursor()
+
 
         # Create users table
         c.execute('''CREATE TABLE IF NOT EXISTS users (
@@ -62,11 +63,10 @@ def setup_database():
             price REAL,
             timestamp INTEGER,
             spot_grid_id INTEGER,
+            wallet_address TEXT,
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY(spot_grid_id) REFERENCES spot_grids(id) ON DELETE CASCADE
         )''')
-
-        
 
 
         conn.commit()
