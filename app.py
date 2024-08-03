@@ -120,13 +120,13 @@ def register():
         
 
         if conn and c:
-            #check email existant
+            """ #check email existant
             c.execute("SELECT id FROM users WHERE email = %s", (email,))
             user = c.fetchone()
 
             if user:
               close_db_connection(conn, c)  
-              return jsonify({"msg": "Email already registered"}), 400
+              return jsonify({"msg": "Email already registered"}), 400 """
             
             
             hashed_password = generate_password_hash(password)
