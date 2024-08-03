@@ -31,10 +31,10 @@ logging.basicConfig(level=logging.DEBUG)
 def get_db_connection():
     try:
         conn = psycopg2.connect(
-            host="dpg-cqbqdhiju9rs7396af9g-a.oregon-postgres.render.com",
-            dbname="trade_bot",
-            user="trade_bot_user",
-            password="3v5PGtbbBh8WJFa9DQnSTbo86gLWQZq1",
+            host="dpg-cqn13rdsvqrc73fha82g-a.oregon-postgres.render.com",
+            dbname="trading_fdlx",
+            user="trading_fdlx_user",
+            password="68gZAC3f42icJv3l3uZEOfR2j9Mtbskq",
             port=5432,
             
         )
@@ -224,11 +224,20 @@ def deposit(user_id):
         if request.content_type == 'application/json':
             data = request.json
             deposit_date = data['date']
-            deposited_amount_bnb = float(data['amount'])
+            amount_bnb = data.get('amount_bnb')
+            amount_usd = data.get('amount_usd')
             status = data['status']
             transaction_hash = data.get('transactionHash', 'N/A')
             contract_address = data.get('contractAddress', 'N/A')
             wallet_address = data.get('wallet_address', 'N/A')
+
+
+            if amount_bnb is not None and amount_bnb != '0':
+                amount_bnb = float(amount_bnb)
+            elif amount_usd is not None and amount_usd != '0':
+                amount_usd = float(amount_usd)
+            else:
+                return jsonify({"message": "Enter a deposited value in USD or BNB"}), 400
         
 
            # Convert BNB to USD using CoinGecko API
@@ -244,16 +253,22 @@ def deposit(user_id):
                 logging.exception('Error fetching BNB to USD rate')
                 return jsonify({'message': 'Failed to fetch BNB to USD conversion rate'}), 500
 
-            balance_usd = round(deposited_amount_bnb * rate, 2)
+            if amount_bnb is not None:
+                balance_usd = round(amount_bnb * rate, 2)
+            else:
+                balance_usd = amount_usd
 
-            logging.debug(f'Deposit request: user_id={user_id}, amount_bnb={deposited_amount_bnb}, balance_usd={balance_usd}, status={status}, transaction_hash={transaction_hash}, contract_address={contract_address}')
+
+            logging.debug(f'Deposit request: user_id={user_id}, amount_bnb={amount_bnb},amount_usd={amount_usd} balance_usd={balance_usd}, status={status}, transaction_hash={transaction_hash}, contract_address={contract_address}')
+
+            deposited_amount = amount_bnb if amount_bnb is not None else amount_usd
 
             conn, cursor = get_db_connection()
             try:
                 cursor.execute(sql.SQL("""
                     INSERT INTO deposits (user_id, amount, balance_usd, status, timestamp, transaction_hash, contract_address, wallet_address, paper_balance) 
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
-                """), (user_id, deposited_amount_bnb, balance_usd, status, datetime.strptime(deposit_date, '%Y-%m-%dT%H:%M:%S.%fZ').timestamp(), transaction_hash, contract_address, wallet_address))
+                """), (user_id, deposited_amount, balance_usd, status, datetime.strptime(deposit_date, '%Y-%m-%dT%H:%M:%S.%fZ').timestamp(), transaction_hash, contract_address, wallet_address))
 
                 if status == 'Successful':
                     cursor.execute(sql.SQL("""
@@ -281,7 +296,7 @@ def deposit(user_id):
                 close_db_connection(conn, cursor)
 
             logging.debug(f'Deposit successful for user_id={user_id}, amount_usd={balance_usd}')
-            return jsonify({'deposited_amount_bnb': deposited_amount_bnb, 'balance_usd': balance_usd, 'status': status, 'transaction_hash': transaction_hash, 'contract_address': contract_address, 'wallet_address': wallet_address , 'paper_balance': paper_balance})
+            return jsonify({'wallet_address': wallet_address , 'paper_balance': paper_balance})
         else:
             return jsonify({'message': 'Content-Type must be application/json'}), 400
 
@@ -303,7 +318,7 @@ def spot_grid(user_id):
         for field in required_fields:
             if field not in data:
                 app.logger.error(f'Missing required parameter: {field}')
-                return jsonify({"error": f"Missing required parameter: {field}"}), 400
+                return jsonify({"msg": f"Missing required parameter: {field}"}), 400
 
         symbol = data['symbol']
         lower_price = data['lower_price']
@@ -325,7 +340,7 @@ def spot_grid(user_id):
             runtime_seconds = int((runtime_datetime - current_time).total_seconds())
         except (ValueError, TypeError) as e:
             app.logger.error(f"Invalid runtime format: {runtime}")
-            return jsonify({"error": "Invalid runtime format. Use ISO 8601 date and time format."}), 400
+            return jsonify({"msg": "Invalid runtime format. Use ISO 8601 date and time format."}), 400
 
         trading_strategy = "Spot Grid"
         roi = data.get('roi', 0)
@@ -343,7 +358,7 @@ def spot_grid(user_id):
 
         if paper_balance is None or paper_balance < investment_amount:
             app.logger.debug(f'Insufficient funds: paper_balance={paper_balance}, investment_amount={investment_amount}')
-            return jsonify({"error": "Insufficient funds"}), 400
+            return jsonify({"msg": "Insufficient funds"}), 400
 
         # Deduct investment_amount from paper_balance
         cursor.execute("UPDATE deposits SET paper_balance = paper_balance - %s WHERE wallet_address = %s", (investment_amount, wallet_address))
@@ -359,14 +374,14 @@ def spot_grid(user_id):
         coingecko_symbol = symbol_map.get(symbol)
         if not coingecko_symbol:
             app.logger.error(f"Unsupported trading pair: {symbol}")
-            return jsonify({"error": "Unsupported trading pair"}), 400
+            return jsonify({"msg": "Unsupported trading pair"}), 400
 
         response = requests.get('https://api.coingecko.com/api/v3/simple/price', 
                                 params={'ids': coingecko_symbol, 'vs_currencies': 'usd'})
         response_data = response.json()
         if coingecko_symbol not in response_data or 'usd' not in response_data[coingecko_symbol]:
             app.logger.error(f"Unable to retrieve market price for symbol: {symbol}")
-            return jsonify({"error": "Unable to retrieve market price"}), 500
+            return jsonify({"msg": "Unable to retrieve market price"}), 500
 
         market_price = response_data[coingecko_symbol]['usd']
 
@@ -374,6 +389,8 @@ def spot_grid(user_id):
         if market_price not in grid_prices:
             grid_prices.append(market_price)
             grid_prices.sort()
+        
+        runtime_unix_timestamp = int(runtime_datetime.timestamp())
 
         trades = []
         total_sell_value = 0
@@ -386,7 +403,7 @@ def spot_grid(user_id):
                 'side': 'buy',
                 'amount': buy_amount,
                 'price': price,
-                'timestamp': int(time.time())
+                'timestamp': runtime_unix_timestamp
             }
             trades.append(buy_trade)
 
@@ -402,7 +419,7 @@ def spot_grid(user_id):
                 'side': 'sell',
                 'amount': sell_amount,
                 'price': sell_price,
-                'timestamp': int(time.time())
+                'timestamp': runtime_unix_timestamp
             }
             trades.append(sell_trade)
 
@@ -417,8 +434,9 @@ def spot_grid(user_id):
                 "INSERT INTO trades (user_id, symbol, type, side, amount, price, timestamp, spot_grid_id, wallet_address) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (trade['user_id'], trade['symbol'], trade['type'], trade['side'], trade['amount'], trade['price'], trade['timestamp'], spot_grid_id, wallet_address)
             )
+            
 
-        # Start a new thread to update the user's paper balance after the runtime duration
+       # Start a new thread to update the user's paper balance after the runtime duration
         threading.Thread(target=update_balance_after_delay, args=(user_id, wallet_address, total_sell_value, runtime_seconds)).start()
 
         conn.commit()
@@ -428,7 +446,7 @@ def spot_grid(user_id):
         return jsonify({"msg": "Grid trading started successfully", "trades": trades}), 200
     except Exception as e:
         app.logger.error(f"Error during spot grid: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"msg": str(e)}), 500
 
 
 def update_balance_after_delay(user_id, wallet_address, total_sell_value, delay):
@@ -471,7 +489,7 @@ def get_paper_balance(user_id):
 
     except Exception as e:
         app.logger.error(f"Error fetching paper balance: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"msg": str(e)}), 500
     finally:
         if cursor:
             cursor.close()
@@ -497,7 +515,7 @@ def get_marketplace(user_id):
         else:
             close_db_connection(conn, c)
             logging.error(f"Invalid sorting parameter: {sort_by}")
-            return jsonify({"error": "Invalid sorting parameter"}), 400
+            return jsonify({"msg": "Invalid sorting parameter"}), 400
 
         spot_grids = c.fetchall()
         close_db_connection(conn, c)
@@ -587,13 +605,13 @@ def trade_history(user_id):
 
         if 'wallet_address' not in data:
             app.logger.error('Missing required parameter: wallet_address')
-            return jsonify({"error": "Missing required parameter: wallet_address"}), 400
+            return jsonify({"msg": "Missing required parameter: wallet_address"}), 400
 
         wallet_address = data['wallet_address']
 
         conn, cursor = get_db_connection()
         if not conn or not cursor:
-            return jsonify({"error": "Database connection failed"}), 500
+            return jsonify({"msg": "Database connection failed"}), 500
 
         cursor.execute(
             "SELECT timestamp, symbol, type, side, amount, price FROM trades WHERE user_id = %s AND wallet_address = %s",
@@ -615,7 +633,7 @@ def trade_history(user_id):
         return jsonify(trade_history)
     except Exception as e:
         app.logger.error(f"Error fetching trade history: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"msg": str(e)}), 500
     finally:
         if conn and cursor:
             close_db_connection(conn, cursor)
@@ -630,13 +648,13 @@ def get_deposit_history(user_id):
         data = request.get_json()
         wallet_address = data.get('wallet_address')
         if not wallet_address:
-            return jsonify({'error': 'Wallet address is required'}), 400
+            return jsonify({'msg': 'Wallet address is required'}), 400
 
         logging.debug(f'Fetching deposit history for wallet_address: {wallet_address}')
 
         conn, cursor = get_db_connection()
         if not conn or not cursor:
-            return jsonify({'error': 'Database connection failed'}), 500
+            return jsonify({'msg': 'Database connection failed'}), 500
 
         cursor.execute("SELECT amount, status, timestamp, transaction_hash, contract_address FROM deposits WHERE user_id = %s AND wallet_address = %s", (user_id, wallet_address))
         deposits = cursor.fetchall()
@@ -654,7 +672,7 @@ def get_deposit_history(user_id):
         return jsonify(deposit_history)
     except Exception as e:
         logging.exception('Error fetching deposit history')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'msg': str(e)}), 500
     finally:
         close_db_connection(conn, cursor)
 

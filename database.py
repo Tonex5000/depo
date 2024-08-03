@@ -3,10 +3,10 @@ import psycopg2
 def setup_database():
     try:
         conn = psycopg2.connect(
-            host="dpg-cqbqdhiju9rs7396af9g-a.oregon-postgres.render.com",
-            dbname="trade_bot",
-            user="trade_bot_user",
-            password="3v5PGtbbBh8WJFa9DQnSTbo86gLWQZq1",
+            host="dpg-cqn13rdsvqrc73fha82g-a.oregon-postgres.render.com",
+            dbname="trading_fdlx",
+            user="trading_fdlx_user",
+            password="68gZAC3f42icJv3l3uZEOfR2j9Mtbskq",
             port=5432,
             
         )
