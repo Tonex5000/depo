@@ -1,4 +1,5 @@
 import psycopg2
+import logging
 
 def setup_database():
     try:
@@ -71,10 +72,11 @@ def setup_database():
 
         conn.commit()
         print("Successfully created and updated tables")
+        c.closre()
         conn.close()
 
     except Exception as e:
-        print(f"Error during database setup: {e}")
+        logging.error(f"Error during database setup: {e}")
 
 if __name__ == '__main__':
     setup_database()

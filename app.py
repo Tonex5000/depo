@@ -22,8 +22,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 app.config['TOKEN_EXPIRATION_DAYS'] = 30
 app.config['SECRET_KEY'] = '09d607fc4bbd698d4334427605aa78b9899c7798a1d1998c8381cb1ca7712067'  # Ensure this is kept secret and safe
 
-# Assuming the database is in the root directory of the project
-DATABASE_PATH = os.path.join(os.getcwd(), 'trading_bot.db')
+
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -95,6 +94,9 @@ def token_required(f):
         return f(user_id, *args, **kwargs)
     return decorated
 
+""" @app._got_first_request
+def initialize():
+    setup_database() """
 
 @app.route('/')
 def index():
@@ -120,13 +122,13 @@ def register():
         
 
         if conn and c:
-            """ #check email existant
+             #check email existant
             c.execute("SELECT id FROM users WHERE email = %s", (email,))
             user = c.fetchone()
 
             if user:
               close_db_connection(conn, c)  
-              return jsonify({"msg": "Email already registered"}), 400 """
+              return jsonify({"msg": "Email already registered"}), 400 
             
             
             hashed_password = generate_password_hash(password)
